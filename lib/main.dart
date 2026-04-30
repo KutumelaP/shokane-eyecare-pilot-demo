@@ -1409,30 +1409,100 @@ class _BookingPanelState extends State<BookingPanel> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppPalette.border),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x18000000),
+              blurRadius: 24,
+              offset: Offset(0, 10),
+            ),
+          ],
+        ),
         child: SafeArea(
           top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Next Workflow Step',
-                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+              Center(
+                child: Container(
+                  width: 48,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: AppPalette.border,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Row(
+                children: [
+                  Icon(Icons.alt_route_rounded, color: AppPalette.primary),
+                  SizedBox(width: 8),
+                  Text(
+                    'Next Workflow Step',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 18,
+                      color: AppPalette.textPrimary,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
-              Text(workflowNote),
-              const SizedBox(height: 10),
-              const Text('1) Check-In on arrival'),
-              const Text('2) Complete exam + claim quality check'),
-              const Text('3) Generate claim pack -> auto-saved to vault'),
+              Text(
+                workflowNote,
+                style: const TextStyle(
+                  color: AppPalette.textMuted,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFEBEE),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppPalette.border),
+                ),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '1) Check-In on arrival',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '2) Complete exam + claim quality check',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      '3) Generate claim pack -> auto-saved to vault',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 14),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
                 children: [
                   FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppPalette.primary,
+                      foregroundColor: Colors.white,
+                    ),
                     onPressed: () {
                       Navigator.pop(context);
                       widget.onGoClinicalClaims();
@@ -1441,6 +1511,10 @@ class _BookingPanelState extends State<BookingPanel> {
                     label: const Text('Open Clinical & Claims'),
                   ),
                   OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppPalette.primary,
+                      side: const BorderSide(color: AppPalette.border),
+                    ),
                     onPressed: () {
                       Navigator.pop(context);
                       widget.onGoRecordsVault();
@@ -2465,6 +2539,74 @@ class PatientsHubPanel extends StatelessWidget {
   final EyecareRepository repository;
   final Practice selectedPractice;
 
+  Future<void> _openPatientWorkspace(
+    BuildContext context,
+    Booking booking,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 20),
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppPalette.border),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                booking.patientName,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 18,
+                  color: AppPalette.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '${booking.saId} • ${booking.phoneNumber}',
+                style: const TextStyle(color: AppPalette.textMuted),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Visit: ${booking.timeSlot} • ${_statusLabel(booking.status)}',
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilledButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.medical_services_outlined),
+                    label: const Text('Clinical'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.description_outlined),
+                    label: const Text('Claims'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.folder_outlined),
+                    label: const Text('Records'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final bookings = repository
@@ -2490,6 +2632,7 @@ class PatientsHubPanel extends StatelessWidget {
                       .map(
                         (booking) => ListTile(
                           contentPadding: EdgeInsets.zero,
+                          onTap: () => _openPatientWorkspace(context, booking),
                           leading: CircleAvatar(
                             child: Text(
                               booking.patientName.substring(0, 1).toUpperCase(),
