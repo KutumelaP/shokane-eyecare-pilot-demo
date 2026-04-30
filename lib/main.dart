@@ -1,28 +1,29 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 class AppPalette {
-  static const Color primary = Color(0xFF1E3A5F);
-  static const Color secondary = Color(0xFF2F6F8F);
-  static const Color accent = Color(0xFF4CB5AE);
-  static const Color background = Color(0xFFF3F7FB);
+  static const Color primary = Color(0xFF37474F);
+  static const Color secondary = Color(0xFFFF8A65);
+  static const Color accent = Color(0xFFFF5252);
+  static const Color background = Color(0xFFFFEBEE);
   static const Color surface = Color(0xFFFFFFFF);
-  static const Color border = Color(0xFFD5E2EF);
-  static const Color sidebar = Color(0xFF10243A);
-  static const Color sidebarBorder = Color(0xFF23415F);
-  static const Color sidebarSelected = Color(0xFF1C4B70);
-  static const Color sidebarIcon = Color(0xFF89A8C6);
-  static const Color sidebarIconActive = Color(0xFF9ED9FF);
-  static const Color textPrimary = Color(0xFF13253F);
-  static const Color textMuted = Color(0xFF5C6F87);
-  static const Color chart = Color(0xFF2F7FB5);
+  static const Color border = Color(0xFFE0E0E0);
+  static const Color atlanticSand = border;
+  static const Color sidebar = Color(0xFF37474F);
+  static const Color sidebarBorder = Color(0xFF455A64);
+  static const Color sidebarSelected = Color(0xFFFF8A65);
+  static const Color sidebarIcon = Color(0xFFFFEBEE);
+  static const Color sidebarIconActive = Color(0xFFFFFFFF);
+  static const Color textPrimary = Color(0xFF37474F);
+  static const Color textMuted = Color(0xFF455A64);
+  static const Color chart = Color(0xFFFF8A65);
 }
 
 void main() {
@@ -70,7 +71,7 @@ class _EyecarePilotAppState extends State<EyecarePilotApp> {
         ),
         inputDecorationTheme: InputDecorationTheme(
           filled: true,
-          fillColor: Colors.white,
+          fillColor: AppPalette.surface,
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(12),
             borderSide: const BorderSide(color: AppPalette.border),
@@ -180,6 +181,10 @@ class ClaimRecord {
     required this.claimAmount,
     required this.createdAt,
     required this.status,
+    required this.icd10Code,
+    required this.tariffCode,
+    required this.validationPassed,
+    required this.validationSummary,
     this.statusNote,
   });
 
@@ -189,18 +194,155 @@ class ClaimRecord {
   final double claimAmount;
   final DateTime createdAt;
   final ClaimStatus status;
+  final String icd10Code;
+  final String tariffCode;
+  final bool validationPassed;
+  final String validationSummary;
   final String? statusNote;
 
-  ClaimRecord copyWith({ClaimStatus? status, String? statusNote}) =>
-      ClaimRecord(
-        id: id,
-        practiceId: practiceId,
-        bookingId: bookingId,
-        claimAmount: claimAmount,
-        createdAt: createdAt,
-        status: status ?? this.status,
-        statusNote: statusNote ?? this.statusNote,
-      );
+  ClaimRecord copyWith({
+    ClaimStatus? status,
+    String? statusNote,
+    String? icd10Code,
+    String? tariffCode,
+    bool? validationPassed,
+    String? validationSummary,
+  }) => ClaimRecord(
+    id: id,
+    practiceId: practiceId,
+    bookingId: bookingId,
+    claimAmount: claimAmount,
+    createdAt: createdAt,
+    status: status ?? this.status,
+    icd10Code: icd10Code ?? this.icd10Code,
+    tariffCode: tariffCode ?? this.tariffCode,
+    validationPassed: validationPassed ?? this.validationPassed,
+    validationSummary: validationSummary ?? this.validationSummary,
+    statusNote: statusNote ?? this.statusNote,
+  );
+}
+
+class ClaimAssistEngine {
+  static const Map<String, String> icd10Catalog = <String, String>{
+    'H52.1': 'Myopia',
+    'H52.4': 'Presbyopia',
+    'H53.8': 'Other visual disturbances',
+    'Z01.0': 'Examination of eyes and vision',
+    'Z02.4': 'Examination for driving license',
+  };
+
+  static const Map<String, String> tariffCatalog = <String, String>{
+    '82001': 'Comprehensive eye examination',
+    '82006': 'Visual fields/basic diagnostics',
+    '82020': 'Driving license vision certificate',
+    '82021': 'Professional driving permit (PDP) certificate',
+  };
+
+  static List<String> suggestIcd10({
+    required ServiceType serviceType,
+    required String clinicalFindings,
+  }) {
+    final findings = clinicalFindings.toLowerCase();
+    final suggested = <String>[];
+    if (serviceType == ServiceType.diagnosticAssessment) {
+      suggested.add('Z02.4');
+    }
+    if (serviceType == ServiceType.certificateAssessment) {
+      suggested.add('Z02.4');
+    }
+    if (serviceType == ServiceType.consultation) {
+      suggested.add('Z01.0');
+    }
+    if (findings.contains('myopia') || findings.contains('short-sight')) {
+      suggested.add('H52.1');
+    }
+    if (findings.contains('presbyopia') || findings.contains('near vision')) {
+      suggested.add('H52.4');
+    }
+    if (findings.contains('blur') || findings.contains('disturbance')) {
+      suggested.add('H53.8');
+    }
+    if (suggested.isEmpty) {
+      suggested.add('Z01.0');
+    }
+    return suggested.toSet().toList();
+  }
+
+  static List<String> suggestTariff({required ServiceType serviceType}) {
+    switch (serviceType) {
+      case ServiceType.consultation:
+        return const ['82001', '82006'];
+      case ServiceType.diagnosticAssessment:
+        return const ['82020', '82001'];
+      case ServiceType.certificateAssessment:
+        return const ['82021', '82020'];
+    }
+  }
+
+  static List<String> validate({
+    required String clinicalFindings,
+    required String visitSummary,
+    required double claimAmount,
+    required String? icd10Code,
+    required String? tariffCode,
+  }) {
+    final issues = <String>[];
+    if (clinicalFindings.trim().length < 10) {
+      issues.add('Clinical findings are too short.');
+    }
+    if (visitSummary.trim().length < 10) {
+      issues.add('Visit summary is too short.');
+    }
+    if (claimAmount <= 0) {
+      issues.add('Claim amount must be greater than zero.');
+    }
+    if (icd10Code == null || !icd10Catalog.containsKey(icd10Code)) {
+      issues.add('Choose a valid ICD-10 code.');
+    }
+    if (tariffCode == null || !tariffCatalog.containsKey(tariffCode)) {
+      issues.add('Choose a valid tariff code.');
+    }
+    return issues;
+  }
+
+  static String exportText({
+    required ClaimRecord claim,
+    required Booking? booking,
+  }) {
+    final patientName = booking?.patientName ?? 'Unknown';
+    final patientId = booking?.saId ?? 'Unknown';
+    final service = booking == null
+        ? 'Unknown'
+        : _serviceLabel(booking.serviceType);
+    return '''
+CLAIM_EXPORT_V1
+claim_id=${claim.id}
+booking_id=${claim.bookingId}
+patient_name=$patientName
+patient_id=$patientId
+service=$service
+icd10=${claim.icd10Code}
+icd10_desc=${icd10Catalog[claim.icd10Code] ?? 'Unknown'}
+tariff=${claim.tariffCode}
+tariff_desc=${tariffCatalog[claim.tariffCode] ?? 'Unknown'}
+amount=${claim.claimAmount.toStringAsFixed(2)}
+status=${claim.status.name}
+validation_passed=${claim.validationPassed}
+validation_summary=${claim.validationSummary}
+generated_at=${DateTime.now().toIso8601String()}
+''';
+  }
+
+  static String _serviceLabel(ServiceType serviceType) {
+    switch (serviceType) {
+      case ServiceType.consultation:
+        return 'Comprehensive Eye Exam';
+      case ServiceType.diagnosticAssessment:
+        return 'Driving Licence Eye Test';
+      case ServiceType.certificateAssessment:
+        return 'PDP Eye Certificate';
+    }
+  }
 }
 
 class ManagedFile {
@@ -369,6 +511,9 @@ class EyecareRepository {
     required String clinicalFindings,
     required String visitSummary,
     required double claimAmount,
+    required String icd10Code,
+    required String tariffCode,
+    required List<String> validationIssues,
   }) {
     updateBookingStatus(
       practiceId: booking.practiceId,
@@ -396,6 +541,12 @@ class EyecareRepository {
         claimAmount: claimAmount,
         createdAt: DateTime.now(),
         status: ClaimStatus.draft,
+        icd10Code: icd10Code,
+        tariffCode: tariffCode,
+        validationPassed: validationIssues.isEmpty,
+        validationSummary: validationIssues.isEmpty
+            ? 'Passed all checks.'
+            : validationIssues.join(' | '),
       ),
     );
     _changes.add(null);
@@ -408,6 +559,15 @@ class EyecareRepository {
     final sorted = List<ClaimRecord>.from(claims);
     sorted.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return sorted;
+  }
+
+  Booking? bookingById(String bookingId) {
+    for (final dayBookings in _bookingsByDate.values) {
+      for (final booking in dayBookings) {
+        if (booking.id == bookingId) return booking;
+      }
+    }
+    return null;
   }
 
   void updateClaimStatus({
@@ -720,7 +880,7 @@ class _EyecarePilotScreenState extends State<EyecarePilotScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Color(0xFFE9F1F8), Color(0xFFF4F8FC), Colors.white],
+            colors: [Color(0xFFFFFFFF), Color(0xFFFFEBEE), Color(0xFFFFFFFF)],
           ),
         ),
         child: SafeArea(
@@ -1053,7 +1213,7 @@ class _ModuleRail extends StatelessWidget {
                     decoration: BoxDecoration(
                       color: selectedModule == m.$1
                           ? AppPalette.sidebarSelected
-                          : const Color(0xFF15304C),
+                          : const Color(0xFF455A64),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -1086,7 +1246,7 @@ class _ModuleRail extends StatelessWidget {
             child: Text(
               'Practice Modules',
               style: TextStyle(
-                color: Color(0xFFB9CCE6),
+                color: AppPalette.sidebarIcon,
                 fontWeight: FontWeight.w700,
                 fontSize: 12,
               ),
@@ -1100,28 +1260,28 @@ class _ModuleRail extends StatelessWidget {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 selected: selectedModule == m.$1,
-                selectedTileColor: const Color(0xFF1A3D64),
+                selectedTileColor: const Color(0x22FF8A65),
                 leading: Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: selectedModule == m.$1
                         ? AppPalette.sidebarSelected
-                        : const Color(0xFF163553),
+                        : const Color(0xFF455A64),
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     m.$2,
                     color: selectedModule == m.$1
                         ? AppPalette.sidebarIconActive
-                        : const Color(0xFFA2B7D1),
+                        : AppPalette.sidebarIcon,
                   ),
                 ),
                 title: Text(
                   m.$3,
                   style: TextStyle(
                     color: selectedModule == m.$1
-                        ? Colors.white
-                        : const Color(0xFFD5E2F2),
+                        ? AppPalette.secondary
+                        : const Color(0xFFFFFFFF),
                     fontWeight: selectedModule == m.$1
                         ? FontWeight.w700
                         : FontWeight.w500,
@@ -1332,13 +1492,13 @@ class _BookingPanelState extends State<BookingPanel> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFD7E6F9)),
+                    border: Border.all(color: AppPalette.atlanticSand),
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.date_range_outlined,
-                        color: Color(0xFF245A8C),
+                        color: AppPalette.primary,
                       ),
                       const SizedBox(width: 10),
                       Text(
@@ -1418,7 +1578,7 @@ class _BookingPanelState extends State<BookingPanel> {
                   child: ElevatedButton.icon(
                     onPressed: _submit,
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF0E4B7D),
+                      backgroundColor: AppPalette.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                     ),
@@ -1452,7 +1612,7 @@ class _BookingPanelState extends State<BookingPanel> {
         fillColor: Colors.white,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFD6E4F7)),
+          borderSide: const BorderSide(color: AppPalette.atlanticSand),
         ),
       ),
     );
@@ -1464,7 +1624,7 @@ class _BookingPanelState extends State<BookingPanel> {
       decoration: BoxDecoration(
         color: Colors.white.withValues(alpha: 0.9),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: const Color(0xFFE5EEFB)),
+        border: Border.all(color: AppPalette.atlanticSand),
         boxShadow: const [
           BoxShadow(
             color: Color(0x120C3059),
@@ -1532,6 +1692,9 @@ class _StaffPanelState extends State<StaffPanel> {
       clinicalFindings: result.clinicalFindings,
       visitSummary: result.visitSummary,
       claimAmount: result.claimAmount,
+      icd10Code: result.icd10Code,
+      tariffCode: result.tariffCode,
+      validationIssues: result.validationIssues,
     );
     final pdfBytes = await widget.documents.printClaimPack(
       practice: widget.selectedPractice,
@@ -1567,86 +1730,158 @@ class _StaffPanelState extends State<StaffPanel> {
     final amount = TextEditingController(
       text: _suggestedAmount(booking.serviceType).toStringAsFixed(2),
     );
+    String? selectedIcd10;
+    String? selectedTariff;
+    List<String> validationIssues = <String>[];
 
     return showDialog<_ClaimDialogResult>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Complete Visit & Create Claim Pack'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: findings,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Clinical Findings',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: summary,
-                maxLines: 3,
-                decoration: const InputDecoration(
-                  labelText: 'Visit Summary',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: amount,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Claim Amount (R)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 8),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Claim quality check: findings, summary, and amount are required.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF6A768A)),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final claimAmount = double.tryParse(amount.text.trim()) ?? 0;
-              if (findings.text.trim().isEmpty ||
-                  summary.text.trim().isEmpty ||
-                  claimAmount <= 0) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text(
-                      'Complete all claim-quality fields before generating.',
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final icdSuggestions = ClaimAssistEngine.suggestIcd10(
+            serviceType: booking.serviceType,
+            clinicalFindings: findings.text,
+          );
+          final tariffSuggestions = ClaimAssistEngine.suggestTariff(
+            serviceType: booking.serviceType,
+          );
+          selectedIcd10 ??= icdSuggestions.first;
+          selectedTariff ??= tariffSuggestions.first;
+          return AlertDialog(
+            title: const Text('Complete Visit & Claim Assist'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: findings,
+                    maxLines: 3,
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Clinical Findings',
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                );
-                return;
-              }
-              Navigator.pop(
-                context,
-                _ClaimDialogResult(
-                  clinicalFindings: findings.text.trim(),
-                  visitSummary: summary.text.trim(),
-                  claimAmount: claimAmount,
-                ),
-              );
-            },
-            child: const Text('Generate'),
-          ),
-        ],
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: summary,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Visit Summary',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: amount,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    decoration: const InputDecoration(
+                      labelText: 'Claim Amount (R)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    value: selectedIcd10,
+                    items: icdSuggestions
+                        .map(
+                          (code) => DropdownMenuItem<String>(
+                            value: code,
+                            child: Text(
+                              '$code — ${ClaimAssistEngine.icd10Catalog[code]}',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => selectedIcd10 = value),
+                    decoration: const InputDecoration(
+                      labelText: 'ICD-10 Suggestion',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  DropdownButtonFormField<String>(
+                    value: selectedTariff,
+                    items: tariffSuggestions
+                        .map(
+                          (code) => DropdownMenuItem<String>(
+                            value: code,
+                            child: Text(
+                              '$code — ${ClaimAssistEngine.tariffCatalog[code]}',
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) =>
+                        setDialogState(() => selectedTariff = value),
+                    decoration: const InputDecoration(
+                      labelText: 'Tariff Helper',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Validation checks cover documentation quality, coding completeness, and amount.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF6A768A)),
+                  ),
+                  if (validationIssues.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    ...validationIssues.map(
+                      (issue) => Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Text(
+                          '• $issue',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFFAD2C2C),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final claimAmount = double.tryParse(amount.text.trim()) ?? 0;
+                  final issues = ClaimAssistEngine.validate(
+                    clinicalFindings: findings.text,
+                    visitSummary: summary.text,
+                    claimAmount: claimAmount,
+                    icd10Code: selectedIcd10,
+                    tariffCode: selectedTariff,
+                  );
+                  if (issues.isNotEmpty) {
+                    setDialogState(() => validationIssues = issues);
+                    return;
+                  }
+                  Navigator.pop(
+                    context,
+                    _ClaimDialogResult(
+                      clinicalFindings: findings.text.trim(),
+                      visitSummary: summary.text.trim(),
+                      claimAmount: claimAmount,
+                      icd10Code: selectedIcd10!,
+                      tariffCode: selectedTariff!,
+                      validationIssues: issues,
+                    ),
+                  );
+                },
+                child: const Text('Generate'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1667,11 +1902,14 @@ class _StaffPanelState extends State<StaffPanel> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: const Color(0xFFE1EBFA)),
+              border: Border.all(color: AppPalette.atlanticSand),
             ),
             child: Row(
               children: [
-                const Icon(Icons.event_note_outlined, color: Color(0xFF245A8C)),
+                const Icon(
+                  Icons.event_note_outlined,
+                  color: AppPalette.primary,
+                ),
                 const SizedBox(width: 10),
                 Text(
                   DateFormat('EEEE, dd MMM yyyy').format(date),
@@ -1682,7 +1920,7 @@ class _StaffPanelState extends State<StaffPanel> {
                   widget.selectedPractice.name,
                   style: const TextStyle(
                     fontSize: 12,
-                    color: Color(0xFF245A8C),
+                    color: AppPalette.primary,
                     fontWeight: FontWeight.w600,
                   ),
                 ),
@@ -1734,7 +1972,7 @@ class _StaffPanelState extends State<StaffPanel> {
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE1EBFA)),
+              border: Border.all(color: AppPalette.atlanticSand),
             ),
             child: const Text(
               'Opportunity Radar: reduce no-shows with staged reminders, prevent claim denials using quality gates, and speed retrieval with indexed patient files.',
@@ -1773,7 +2011,7 @@ class _StaffPanelState extends State<StaffPanel> {
                     decoration: BoxDecoration(
                       color: Colors.white,
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE5EEFB)),
+                      border: Border.all(color: AppPalette.atlanticSand),
                       boxShadow: const [
                         BoxShadow(
                           color: Color(0x110C3059),
@@ -1788,7 +2026,7 @@ class _StaffPanelState extends State<StaffPanel> {
                         Row(
                           children: [
                             CircleAvatar(
-                              backgroundColor: const Color(0xFF0E4B7D),
+                              backgroundColor: AppPalette.primary,
                               child: Text(
                                 booking.patientName
                                     .substring(0, 1)
@@ -1879,12 +2117,12 @@ class _StaffPanelState extends State<StaffPanel> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFDDE8FA)),
+        border: Border.all(color: AppPalette.atlanticSand),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: const Color(0xFF245A8C)),
+          Icon(icon, size: 16, color: AppPalette.primary),
           const SizedBox(width: 6),
           Text(
             '$label: $value',
@@ -2036,7 +2274,7 @@ class _RecordsPanelState extends State<RecordsPanel> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFE0EBFA)),
+                border: Border.all(color: AppPalette.atlanticSand),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2136,13 +2374,13 @@ class _RecordsPanelState extends State<RecordsPanel> {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFE0EBFA)),
+                    border: Border.all(color: AppPalette.atlanticSand),
                   ),
                   child: Row(
                     children: [
                       const Icon(
                         Icons.description_outlined,
-                        color: Color(0xFF245A8C),
+                        color: AppPalette.primary,
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -2344,6 +2582,67 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
     );
   }
 
+  Future<void> _exportClaim(ClaimRecord claim) async {
+    final booking = widget.repository.bookingById(claim.bookingId);
+    final payload = ClaimAssistEngine.exportText(
+      claim: claim,
+      booking: booking,
+    );
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Export to Existing Workflow'),
+        content: SizedBox(
+          width: 520,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Use this payload for your payer portal, clearing-house import, or legacy billing handoff.',
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF6FAFF),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppPalette.atlanticSand),
+                ),
+                child: SelectableText(
+                  payload,
+                  style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+          FilledButton.icon(
+            onPressed: () {
+              final messenger = ScaffoldMessenger.of(context);
+              Clipboard.setData(ClipboardData(text: payload));
+              Navigator.pop(dialogContext);
+              messenger.showSnackBar(
+                const SnackBar(
+                  content: Text('Claim export copied to clipboard.'),
+                ),
+              );
+            },
+            icon: const Icon(Icons.copy_outlined),
+            label: const Text('Copy Export Payload'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final metrics = widget.repository.dashboardMetrics(
@@ -2408,7 +2707,7 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
                               color: const Color(0xFFF8FBFF),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                color: const Color(0xFFDCE8FA),
+                                color: AppPalette.atlanticSand,
                               ),
                             ),
                             child: Column(
@@ -2440,6 +2739,24 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
                                     color: Color(0xFF5B6E89),
                                   ),
                                 ),
+                                const SizedBox(height: 6),
+                                Text(
+                                  'ICD-10 ${claim.icd10Code} • Tariff ${claim.tariffCode}',
+                                  style: const TextStyle(
+                                    color: Color(0xFF2F5D86),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  claim.validationSummary,
+                                  style: TextStyle(
+                                    color: claim.validationPassed
+                                        ? const Color(0xFF2E7D32)
+                                        : const Color(0xFFB3261E),
+                                    fontSize: 12,
+                                  ),
+                                ),
                                 const SizedBox(height: 8),
                                 Wrap(
                                   spacing: 8,
@@ -2468,6 +2785,13 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
                                         'Denied: needs coding or documentation fix.',
                                       ),
                                       child: const Text('Mark Denied'),
+                                    ),
+                                    FilledButton.tonalIcon(
+                                      onPressed: () => _exportClaim(claim),
+                                      icon: const Icon(
+                                        Icons.upload_file_outlined,
+                                      ),
+                                      label: const Text('Export'),
                                     ),
                                   ],
                                 ),
@@ -2787,9 +3111,15 @@ class _ClaimDialogResult {
     required this.clinicalFindings,
     required this.visitSummary,
     required this.claimAmount,
+    required this.icd10Code,
+    required this.tariffCode,
+    required this.validationIssues,
   });
 
   final String clinicalFindings;
   final String visitSummary;
   final double claimAmount;
+  final String icd10Code;
+  final String tariffCode;
+  final List<String> validationIssues;
 }
