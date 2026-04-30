@@ -869,12 +869,127 @@ class _EyecarePilotScreenState extends State<EyecarePilotScreen> {
   Practice selectedPractice = EyecareRepository.practices.first;
   bool forceCompactRail = false;
 
+  int _mobileNavIndexFor(AppModule module) {
+    switch (module) {
+      case AppModule.frontDesk:
+        return 0;
+      case AppModule.clinicalClaims:
+        return 1;
+      case AppModule.recordsVault:
+        return 2;
+      case AppModule.patients:
+      case AppModule.billing:
+      case AppModule.inventory:
+      case AppModule.reports:
+        return 3;
+    }
+  }
+
+  void _onMobileNavTap(int index) {
+    switch (index) {
+      case 0:
+        setState(() => selectedModule = AppModule.frontDesk);
+        return;
+      case 1:
+        setState(() => selectedModule = AppModule.clinicalClaims);
+        return;
+      case 2:
+        setState(() => selectedModule = AppModule.recordsVault);
+        return;
+      case 3:
+        _openMoreModulesSheet();
+        return;
+    }
+  }
+
+  Future<void> _openMoreModulesSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 18),
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppPalette.border),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _mobileModuleTile(
+                AppModule.patients,
+                Icons.people_alt_outlined,
+                'Patients',
+              ),
+              _mobileModuleTile(
+                AppModule.billing,
+                Icons.receipt_long_outlined,
+                'Billing',
+              ),
+              _mobileModuleTile(
+                AppModule.inventory,
+                Icons.inventory_2_outlined,
+                'Stock',
+              ),
+              _mobileModuleTile(
+                AppModule.reports,
+                Icons.analytics_outlined,
+                'Reports',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _mobileModuleTile(AppModule module, IconData icon, String label) {
+    return ListTile(
+      leading: Icon(icon, color: AppPalette.primary),
+      title: Text(label),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () {
+        Navigator.pop(context);
+        setState(() => selectedModule = module);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final desktop = MediaQuery.of(context).size.width > 980;
+    final width = MediaQuery.of(context).size.width;
+    final desktop = width > 980;
+    final mobile = width < 760;
     final compactRail = !desktop || forceCompactRail;
 
     return Scaffold(
+      bottomNavigationBar: mobile
+          ? NavigationBar(
+              selectedIndex: _mobileNavIndexFor(selectedModule),
+              onDestinationSelected: _onMobileNavTap,
+              destinations: const [
+                NavigationDestination(
+                  icon: Icon(Icons.today_outlined),
+                  label: 'Front',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.medical_services_outlined),
+                  label: 'Clinical',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.folder_copy_outlined),
+                  label: 'Vault',
+                ),
+                NavigationDestination(
+                  icon: Icon(Icons.apps_outlined),
+                  label: 'More',
+                ),
+              ],
+            )
+          : null,
       body: Container(
         decoration: const BoxDecoration(
           gradient: LinearGradient(
@@ -900,16 +1015,18 @@ class _EyecarePilotScreenState extends State<EyecarePilotScreen> {
                   }
                 },
                 compactRail: compactRail,
+                isMobile: mobile,
               ),
               Expanded(
                 child: Row(
                   children: [
-                    _ModuleRail(
-                      selectedModule: selectedModule,
-                      onSelect: (module) =>
-                          setState(() => selectedModule = module),
-                      compact: compactRail,
-                    ),
+                    if (!mobile)
+                      _ModuleRail(
+                        selectedModule: selectedModule,
+                        onSelect: (module) =>
+                            setState(() => selectedModule = module),
+                        compact: compactRail,
+                      ),
                     Expanded(
                       child: AnimatedSwitcher(
                         duration: const Duration(milliseconds: 260),
@@ -990,6 +1107,7 @@ class _Header extends StatelessWidget {
     required this.onToggleTheme,
     required this.onToggleRailMode,
     required this.compactRail,
+    required this.isMobile,
   });
 
   final Practice selectedPractice;
@@ -998,13 +1116,14 @@ class _Header extends StatelessWidget {
   final VoidCallback onToggleTheme;
   final VoidCallback onToggleRailMode;
   final bool compactRail;
+  final bool isMobile;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+      padding: EdgeInsets.fromLTRB(12, isMobile ? 10 : 14, 12, 10),
       child: Container(
-        padding: const EdgeInsets.all(18),
+        padding: EdgeInsets.all(isMobile ? 14 : 18),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(26),
           gradient: const LinearGradient(
@@ -1034,7 +1153,7 @@ class _Header extends StatelessWidget {
                     'Shokane Eyecare Pilot',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 24,
+                      fontSize: 22,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.2,
                     ),
@@ -1060,16 +1179,19 @@ class _Header extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                IconButton(
-                  tooltip: compactRail ? 'Expand sidebar' : 'Collapse sidebar',
-                  onPressed: onToggleRailMode,
-                  icon: Icon(
-                    compactRail
-                        ? Icons.view_week_outlined
-                        : Icons.view_day_outlined,
-                    color: Colors.white,
+                if (!isMobile)
+                  IconButton(
+                    tooltip: compactRail
+                        ? 'Expand sidebar'
+                        : 'Collapse sidebar',
+                    onPressed: onToggleRailMode,
+                    icon: Icon(
+                      compactRail
+                          ? Icons.view_week_outlined
+                          : Icons.view_day_outlined,
+                      color: Colors.white,
+                    ),
                   ),
-                ),
                 IconButton(
                   tooltip: isDarkMode
                       ? 'Switch to light mode'
