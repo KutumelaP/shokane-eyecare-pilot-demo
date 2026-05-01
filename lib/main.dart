@@ -390,8 +390,66 @@ class ManagedFile {
   );
 }
 
+class PendingAuthorization {
+  const PendingAuthorization({
+    required this.id,
+    required this.practiceId,
+    required this.patientName,
+    required this.medicalAid,
+    required this.service,
+    required this.requestedAt,
+    required this.status,
+  });
+
+  final String id;
+  final String practiceId;
+  final String patientName;
+  final String medicalAid;
+  final String service;
+  final DateTime requestedAt;
+  final String status;
+}
+
+class BenefitBalance {
+  const BenefitBalance({
+    required this.id,
+    required this.practiceId,
+    required this.patientName,
+    required this.medicalAid,
+    required this.remainingAmount,
+    required this.lastUpdatedAt,
+  });
+
+  final String id;
+  final String practiceId;
+  final String patientName;
+  final String medicalAid;
+  final double remainingAmount;
+  final DateTime lastUpdatedAt;
+}
+
+class StaffActivity {
+  const StaffActivity({
+    required this.id,
+    required this.practiceId,
+    required this.actor,
+    required this.action,
+    required this.details,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String practiceId;
+  final String actor;
+  final String action;
+  final String details;
+  final DateTime createdAt;
+}
+
 class EyecareRepository {
-  EyecareRepository._();
+  EyecareRepository._() {
+    _seedDemoData();
+  }
   static final EyecareRepository instance = EyecareRepository._();
 
   static const List<String> defaultSlots = <String>[
@@ -425,11 +483,42 @@ class EyecareRepository {
   final List<ClaimRecord> _claims = <ClaimRecord>[];
   final Map<String, List<ManagedFile>> _filesByPractice =
       <String, List<ManagedFile>>{};
+  final List<PendingAuthorization> _pendingAuthorizations =
+      <PendingAuthorization>[];
+  final List<BenefitBalance> _benefitBalances = <BenefitBalance>[];
+  final List<StaffActivity> _staffActivities = <StaffActivity>[];
+  DateTime _lastSyncedAt = DateTime.now();
   final StreamController<void> _changes = StreamController<void>.broadcast();
   Stream<void> get changes => _changes.stream;
+  DateTime get lastSyncedAt => _lastSyncedAt;
 
   DateTime normalize(DateTime date) =>
       DateTime(date.year, date.month, date.day);
+
+  void _emitChange() {
+    _lastSyncedAt = DateTime.now();
+    _changes.add(null);
+  }
+
+  void _logActivity({
+    required String practiceId,
+    required String actor,
+    required String action,
+    required String details,
+    DateTime? createdAt,
+  }) {
+    _staffActivities.add(
+      StaffActivity(
+        id: 'act-${DateTime.now().microsecondsSinceEpoch}',
+        practiceId: practiceId,
+        actor: actor,
+        action: action,
+        details: details,
+        createdAt: createdAt ?? DateTime.now(),
+      ),
+    );
+  }
+
   String _key(String practiceId, DateTime date) =>
       '$practiceId|${DateFormat('yyyy-MM-dd').format(normalize(date))}';
   DateTime _slotToDate(DateTime date, String slot) {
@@ -488,7 +577,14 @@ class EyecareRepository {
         createdAt: DateTime.now(),
       ),
     );
-    _changes.add(null);
+    _logActivity(
+      practiceId: practiceId,
+      actor: 'Front Desk',
+      action: 'Diary Booking Created',
+      details:
+          '$patientName booked for $timeSlot (${_serviceLabel(serviceType)}).',
+    );
+    _emitChange();
   }
 
   void updateBookingStatus({
@@ -499,11 +595,22 @@ class EyecareRepository {
   }) {
     final key = _key(practiceId, date);
     final list = _bookingsByDate[key];
-    if (list == null) return;
+    if (list == null) {
+      return;
+    }
     final index = list.indexWhere((booking) => booking.id == bookingId);
-    if (index < 0) return;
+    if (index < 0) {
+      return;
+    }
     list[index] = list[index].copyWith(status: status);
-    _changes.add(null);
+    _logActivity(
+      practiceId: practiceId,
+      actor: 'Front Desk',
+      action: 'Booking Status Updated',
+      details:
+          '${list[index].patientName} moved to ${_bookingStatusLabel(status)}.',
+    );
+    _emitChange();
   }
 
   void completeVisitAndCreateClaim({
@@ -549,7 +656,14 @@ class EyecareRepository {
             : validationIssues.join(' | '),
       ),
     );
-    _changes.add(null);
+    _logActivity(
+      practiceId: booking.practiceId,
+      actor: 'Clinician',
+      action: 'Claim Created',
+      details:
+          '${booking.patientName}: R${claimAmount.toStringAsFixed(2)} with $icd10Code / $tariffCode.',
+    );
+    _emitChange();
   }
 
   List<ClaimRecord> claimsForPractice(String practiceId) {
@@ -564,7 +678,9 @@ class EyecareRepository {
   Booking? bookingById(String bookingId) {
     for (final dayBookings in _bookingsByDate.values) {
       for (final booking in dayBookings) {
-        if (booking.id == bookingId) return booking;
+        if (booking.id == bookingId) {
+          return booking;
+        }
       }
     }
     return null;
@@ -576,12 +692,23 @@ class EyecareRepository {
     String? statusNote,
   }) {
     final index = _claims.indexWhere((claim) => claim.id == claimId);
-    if (index < 0) return;
+    if (index < 0) {
+      return;
+    }
     _claims[index] = _claims[index].copyWith(
       status: status,
       statusNote: statusNote,
     );
-    _changes.add(null);
+    final claim = _claims[index];
+    final booking = bookingById(claim.bookingId);
+    _logActivity(
+      practiceId: claim.practiceId,
+      actor: 'Billing',
+      action: 'Claim Status Updated',
+      details:
+          '${booking?.patientName ?? 'Patient'} claim set to ${_claimStatusLabel(status)}.',
+    );
+    _emitChange();
   }
 
   void markLatestClaimAsSubmittedForBooking({
@@ -595,7 +722,9 @@ class EyecareRepository {
         indices.add(i);
       }
     }
-    if (indices.isEmpty) return;
+    if (indices.isEmpty) {
+      return;
+    }
     indices.sort(
       (a, b) => _claims[a].createdAt.compareTo(_claims[b].createdAt),
     );
@@ -604,7 +733,15 @@ class EyecareRepository {
       status: ClaimStatus.submitted,
       statusNote: 'Claim pack generated and ready for submission.',
     );
-    _changes.add(null);
+    final booking = bookingById(bookingId);
+    _logActivity(
+      practiceId: practiceId,
+      actor: 'System',
+      action: 'Claim Submitted',
+      details:
+          'Auto-submitted generated claim pack for ${booking?.patientName ?? 'patient'}.',
+    );
+    _emitChange();
   }
 
   List<Booking> allBookingsForPractice(String practiceId) {
@@ -655,7 +792,13 @@ class EyecareRepository {
         linkedBookingId: linkedBookingId,
       ),
     );
-    _changes.add(null);
+    _logActivity(
+      practiceId: practiceId,
+      actor: source == 'system_generated' ? 'System' : 'Records Team',
+      action: 'File Added to Vault',
+      details: '$fileName uploaded for $patientName.',
+    );
+    _emitChange();
   }
 
   void addGeneratedClaimPackFile({
@@ -684,11 +827,90 @@ class EyecareRepository {
     required String fileId,
   }) {
     final files = _filesByPractice[practiceId];
-    if (files == null) return;
+    if (files == null) {
+      return;
+    }
     final index = files.indexWhere((f) => f.id == fileId);
-    if (index < 0) return;
+    if (index < 0) {
+      return;
+    }
     files[index] = files[index].copyWith(verified: !files[index].verified);
-    _changes.add(null);
+    _logActivity(
+      practiceId: practiceId,
+      actor: 'Records Team',
+      action: 'File Verification Toggled',
+      details:
+          '${files[index].fileName} marked ${files[index].verified ? 'verified' : 'unverified'}.',
+    );
+    _emitChange();
+  }
+
+  List<PendingAuthorization> pendingAuthorizationsForPractice(
+    String practiceId,
+  ) {
+    final list = _pendingAuthorizations
+        .where((item) => item.practiceId == practiceId)
+        .toList(growable: false);
+    final sorted = List<PendingAuthorization>.from(list);
+    sorted.sort((a, b) => b.requestedAt.compareTo(a.requestedAt));
+    return sorted;
+  }
+
+  List<BenefitBalance> benefitBalancesForPractice(String practiceId) {
+    final list = _benefitBalances
+        .where((item) => item.practiceId == practiceId)
+        .toList(growable: false);
+    final sorted = List<BenefitBalance>.from(list);
+    sorted.sort((a, b) => a.remainingAmount.compareTo(b.remainingAmount));
+    return sorted;
+  }
+
+  List<StaffActivity> staffActivitiesForPractice(
+    String practiceId, {
+    int limit = 12,
+  }) {
+    final list = _staffActivities
+        .where((item) => item.practiceId == practiceId)
+        .toList(growable: false);
+    list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return list.take(limit).toList(growable: false);
+  }
+
+  List<ClaimRecord> rejectedClaimsForPractice(String practiceId) =>
+      claimsForPractice(practiceId)
+          .where((claim) => claim.status == ClaimStatus.denied)
+          .toList(growable: false);
+
+  List<ClaimRecord> overdueClaimsForPractice(
+    String practiceId, {
+    int thresholdDays = 14,
+  }) {
+    final now = DateTime.now();
+    return claimsForPractice(practiceId)
+        .where((claim) {
+          final age = now.difference(claim.createdAt).inDays;
+          return claim.status != ClaimStatus.paid && age >= thresholdDays;
+        })
+        .toList(growable: false);
+  }
+
+  List<String> notificationsForPractice(String practiceId) {
+    final alerts = <String>[];
+    final denied = rejectedClaimsForPractice(practiceId).length;
+    final overdue = overdueClaimsForPractice(practiceId).length;
+    final pendingAuth = pendingAuthorizationsForPractice(
+      practiceId,
+    ).where((item) => item.status == 'Pending').length;
+    if (denied > 0) {
+      alerts.add('$denied rejected claims need attention.');
+    }
+    if (overdue > 0) {
+      alerts.add('$overdue unpaid claims are now overdue.');
+    }
+    if (pendingAuth > 0) {
+      alerts.add('$pendingAuth pre-authorizations are still pending.');
+    }
+    return alerts;
   }
 
   Map<String, int> dashboardMetrics(String practiceId, DateTime date) {
@@ -702,13 +924,251 @@ class EyecareRepository {
     final checkedIn = todayBookings
         .where((b) => b.status == BookingStatus.checkedIn)
         .length;
+    final deniedClaims = _claims
+        .where(
+          (c) => c.practiceId == practiceId && c.status == ClaimStatus.denied,
+        )
+        .length;
+    final pendingAuth = pendingAuthorizationsForPractice(
+      practiceId,
+    ).where((item) => item.status == 'Pending').length;
     return <String, int>{
       'todayBookings': todayBookings.length,
       'checkedIn': checkedIn,
       'claimCount': claimCount,
       'fileCount': files.length,
       'noShows': noShows,
+      'deniedClaims': deniedClaims,
+      'pendingAuth': pendingAuth,
     };
+  }
+
+  void _seedDemoData() {
+    if (_bookingsByDate.isNotEmpty || _claims.isNotEmpty) {
+      return;
+    }
+    final practiceId = practices.first.id;
+    final now = DateTime.now();
+    final today = normalize(now);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final twoDaysAgo = today.subtract(const Duration(days: 2));
+
+    final bookingA = Booking(
+      id: 'seed-booking-001',
+      practiceId: practiceId,
+      patientName: 'Lerato Mokoena',
+      phoneNumber: '071 222 3344',
+      saId: '9001015800087',
+      serviceType: ServiceType.consultation,
+      appointmentDate: _slotToDate(today, '09:00'),
+      timeSlot: '09:00',
+      status: BookingStatus.checkedIn,
+      createdAt: twoDaysAgo,
+      clinicalFindings: 'Blurry near vision and headaches by afternoon.',
+      visitSummary: 'Needs refraction update and anti-fatigue lens guidance.',
+    );
+    final bookingB = Booking(
+      id: 'seed-booking-002',
+      practiceId: practiceId,
+      patientName: 'Thabo Nkosi',
+      phoneNumber: '072 778 1199',
+      saId: '8705125401089',
+      serviceType: ServiceType.certificateAssessment,
+      appointmentDate: _slotToDate(today, '11:00'),
+      timeSlot: '11:00',
+      status: BookingStatus.pending,
+      createdAt: yesterday,
+    );
+    final bookingC = Booking(
+      id: 'seed-booking-003',
+      practiceId: practiceId,
+      patientName: 'Nomsa Dlamini',
+      phoneNumber: '082 991 4455',
+      saId: '9102280606081',
+      serviceType: ServiceType.diagnosticAssessment,
+      appointmentDate: _slotToDate(yesterday, '14:00'),
+      timeSlot: '14:00',
+      status: BookingStatus.completed,
+      createdAt: twoDaysAgo,
+      clinicalFindings:
+          'Visual acuity below threshold without corrective lenses.',
+      visitSummary:
+          'Driver screening complete; referred for full refractive correction.',
+    );
+
+    _bookingsByDate[_key(practiceId, today)] = <Booking>[bookingA, bookingB];
+    _bookingsByDate[_key(practiceId, yesterday)] = <Booking>[bookingC];
+
+    _claims.addAll(<ClaimRecord>[
+      ClaimRecord(
+        id: 'seed-claim-001',
+        practiceId: practiceId,
+        bookingId: bookingC.id,
+        claimAmount: 780,
+        createdAt: now.subtract(const Duration(days: 18)),
+        status: ClaimStatus.denied,
+        statusNote: 'Rejected: tariff mismatch vs authorization.',
+        icd10Code: 'Z02.4',
+        tariffCode: '82020',
+        validationPassed: false,
+        validationSummary: 'Tariff mismatch and missing supporting attachment.',
+      ),
+      ClaimRecord(
+        id: 'seed-claim-002',
+        practiceId: practiceId,
+        bookingId: bookingA.id,
+        claimAmount: 920,
+        createdAt: now.subtract(const Duration(days: 12)),
+        status: ClaimStatus.submitted,
+        statusNote: 'Submitted to medical aid; awaiting remittance.',
+        icd10Code: 'H52.4',
+        tariffCode: '82001',
+        validationPassed: true,
+        validationSummary: 'Passed all checks.',
+      ),
+      ClaimRecord(
+        id: 'seed-claim-003',
+        practiceId: practiceId,
+        bookingId: bookingA.id,
+        claimAmount: 560,
+        createdAt: now.subtract(const Duration(days: 4)),
+        status: ClaimStatus.paid,
+        statusNote: 'Paid and reconciled.',
+        icd10Code: 'Z01.0',
+        tariffCode: '82006',
+        validationPassed: true,
+        validationSummary: 'Passed all checks.',
+      ),
+    ]);
+
+    _pendingAuthorizations.addAll(<PendingAuthorization>[
+      PendingAuthorization(
+        id: 'auth-001',
+        practiceId: practiceId,
+        patientName: 'Lerato Mokoena',
+        medicalAid: 'Discovery Health',
+        service: 'Comprehensive Eye Exam',
+        requestedAt: now.subtract(const Duration(hours: 29)),
+        status: 'Pending',
+      ),
+      PendingAuthorization(
+        id: 'auth-002',
+        practiceId: practiceId,
+        patientName: 'Thabo Nkosi',
+        medicalAid: 'Bonitas',
+        service: 'PDP Certificate',
+        requestedAt: now.subtract(const Duration(hours: 8)),
+        status: 'Pending',
+      ),
+      PendingAuthorization(
+        id: 'auth-003',
+        practiceId: practiceId,
+        patientName: 'Nomsa Dlamini',
+        medicalAid: 'GEMS',
+        service: 'Driver Screening',
+        requestedAt: now.subtract(const Duration(days: 2)),
+        status: 'Approved',
+      ),
+    ]);
+
+    _benefitBalances.addAll(<BenefitBalance>[
+      BenefitBalance(
+        id: 'bal-001',
+        practiceId: practiceId,
+        patientName: 'Lerato Mokoena',
+        medicalAid: 'Discovery Health',
+        remainingAmount: 350,
+        lastUpdatedAt: now.subtract(const Duration(hours: 4)),
+      ),
+      BenefitBalance(
+        id: 'bal-002',
+        practiceId: practiceId,
+        patientName: 'Thabo Nkosi',
+        medicalAid: 'Bonitas',
+        remainingAmount: 0,
+        lastUpdatedAt: now.subtract(const Duration(days: 1)),
+      ),
+      BenefitBalance(
+        id: 'bal-003',
+        practiceId: practiceId,
+        patientName: 'Nomsa Dlamini',
+        medicalAid: 'GEMS',
+        remainingAmount: 540,
+        lastUpdatedAt: now.subtract(const Duration(hours: 2)),
+      ),
+    ]);
+
+    _staffActivities.addAll(<StaffActivity>[
+      StaffActivity(
+        id: 'seed-act-001',
+        practiceId: practiceId,
+        actor: 'Front Desk',
+        action: 'Check-In',
+        details: 'Lerato Mokoena checked in.',
+        createdAt: now.subtract(const Duration(minutes: 22)),
+      ),
+      StaffActivity(
+        id: 'seed-act-002',
+        practiceId: practiceId,
+        actor: 'Clinician',
+        action: 'Clinical Notes',
+        details: 'Updated findings for Nomsa Dlamini.',
+        createdAt: now.subtract(const Duration(minutes: 48)),
+      ),
+      StaffActivity(
+        id: 'seed-act-003',
+        practiceId: practiceId,
+        actor: 'Billing',
+        action: 'Claim Review',
+        details: 'Denied claim queued for correction.',
+        createdAt: now.subtract(const Duration(hours: 3)),
+      ),
+      StaffActivity(
+        id: 'seed-act-004',
+        practiceId: practiceId,
+        actor: 'Records Team',
+        action: 'File Verification',
+        details: 'Verified signed consent and ID copy.',
+        createdAt: now.subtract(const Duration(hours: 5)),
+      ),
+    ]);
+  }
+
+  String _bookingStatusLabel(BookingStatus status) {
+    switch (status) {
+      case BookingStatus.pending:
+        return 'Pending';
+      case BookingStatus.checkedIn:
+        return 'Checked-In';
+      case BookingStatus.completed:
+        return 'Completed';
+      case BookingStatus.noShow:
+        return 'No-Show';
+    }
+  }
+
+  String _claimStatusLabel(ClaimStatus status) {
+    switch (status) {
+      case ClaimStatus.draft:
+        return 'Draft';
+      case ClaimStatus.submitted:
+        return 'Submitted';
+      case ClaimStatus.denied:
+        return 'Denied';
+      case ClaimStatus.paid:
+        return 'Paid';
+    }
+  }
+
+  String _serviceLabel(ServiceType serviceType) {
+    switch (serviceType) {
+      case ServiceType.consultation:
+        return 'Comprehensive Eye Exam';
+      case ServiceType.diagnosticAssessment:
+        return 'Driving Licence Eye Test';
+      case ServiceType.certificateAssessment:
+        return 'PDP Eye Certificate';
+    }
   }
 }
 
@@ -958,6 +1418,54 @@ class _EyecarePilotScreenState extends State<EyecarePilotScreen> {
     );
   }
 
+  Future<void> _openNotificationsSheet() async {
+    final alerts = repository.notificationsForPractice(selectedPractice.id);
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        margin: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 16),
+        decoration: BoxDecoration(
+          color: AppPalette.surface,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppPalette.border),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: alerts.isEmpty
+                ? const [
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: Icon(
+                        Icons.check_circle_outline,
+                        color: Color(0xFF1F9C64),
+                      ),
+                      title: Text(
+                        'All operational queues are within normal range.',
+                      ),
+                    ),
+                  ]
+                : alerts
+                      .map(
+                        (alert) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.notifications_active_outlined,
+                            color: AppPalette.primary,
+                          ),
+                          title: Text(alert),
+                        ),
+                      )
+                      .toList(),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.of(context).size.width;
@@ -1009,6 +1517,11 @@ class _EyecarePilotScreenState extends State<EyecarePilotScreen> {
                 ),
                 isDarkMode: widget.isDarkMode,
                 onToggleTheme: widget.onToggleTheme,
+                onOpenNotifications: _openNotificationsSheet,
+                alertCount: repository
+                    .notificationsForPractice(selectedPractice.id)
+                    .length,
+                lastSyncedAt: repository.lastSyncedAt,
                 onToggleRailMode: () {
                   if (desktop) {
                     setState(() => forceCompactRail = !forceCompactRail);
@@ -1105,6 +1618,9 @@ class _Header extends StatelessWidget {
     required this.metrics,
     required this.isDarkMode,
     required this.onToggleTheme,
+    required this.onOpenNotifications,
+    required this.alertCount,
+    required this.lastSyncedAt,
     required this.onToggleRailMode,
     required this.compactRail,
     required this.isMobile,
@@ -1114,6 +1630,9 @@ class _Header extends StatelessWidget {
   final Map<String, int> metrics;
   final bool isDarkMode;
   final VoidCallback onToggleTheme;
+  final VoidCallback onOpenNotifications;
+  final int alertCount;
+  final DateTime lastSyncedAt;
   final VoidCallback onToggleRailMode;
   final bool compactRail;
   final bool isMobile;
@@ -1192,6 +1711,42 @@ class _Header extends StatelessWidget {
                       color: Colors.white,
                     ),
                   ),
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      tooltip: 'Operational alerts',
+                      onPressed: onOpenNotifications,
+                      icon: const Icon(
+                        Icons.notifications_none_outlined,
+                        color: Colors.white,
+                      ),
+                    ),
+                    if (alertCount > 0)
+                      Positioned(
+                        right: 6,
+                        top: 4,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                          child: Text(
+                            '$alertCount',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: AppPalette.primary,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
                 IconButton(
                   tooltip: isDarkMode
                       ? 'Switch to light mode'
@@ -1213,6 +1768,17 @@ class _Header extends StatelessWidget {
                 color: Color(0xFFE8F4FF),
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Last synced ${DateFormat('HH:mm:ss').format(lastSyncedAt)} • '
+              '${metrics['deniedClaims'] ?? 0} denied claims • '
+              '${metrics['pendingAuth'] ?? 0} pending auth',
+              style: const TextStyle(
+                color: Color(0xFFE8F4FF),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
               ),
             ),
             const SizedBox(height: 14),
@@ -1490,7 +2056,9 @@ class _BookingPanelState extends State<BookingPanel> {
       firstDate: DateTime(now.year, now.month, now.day),
       lastDate: now.add(const Duration(days: 90)),
     );
-    if (picked == null) return;
+    if (picked == null) {
+      return;
+    }
     date = picked;
     _refreshSlots();
   }
@@ -1876,13 +2444,17 @@ class _StaffPanelState extends State<StaffPanel> {
       ).subtract(const Duration(days: 14)),
       lastDate: now.add(const Duration(days: 90)),
     );
-    if (picked == null) return;
+    if (picked == null) {
+      return;
+    }
     setState(() => date = picked);
   }
 
   Future<void> _completeBooking(Booking booking) async {
     final result = await _openDialog(booking);
-    if (result == null) return;
+    if (result == null) {
+      return;
+    }
     widget.repository.completeVisitAndCreateClaim(
       booking: booking,
       clinicalFindings: result.clinicalFindings,
@@ -1908,7 +2480,9 @@ class _StaffPanelState extends State<StaffPanel> {
       practiceId: booking.practiceId,
       bookingId: booking.id,
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
@@ -2427,7 +3001,9 @@ class _RecordsPanelState extends State<RecordsPanel> {
     }
 
     final result = await FilePicker.pickFiles(withData: true);
-    if (result == null || result.files.isEmpty) return;
+    if (result == null || result.files.isEmpty) {
+      return;
+    }
     final file = result.files.first;
     final displayName = '${patientName.replaceAll(' ', '_')}-${file.name}';
     widget.repository.addManagedFile(
@@ -2439,7 +3015,9 @@ class _RecordsPanelState extends State<RecordsPanel> {
       patientName: patientName,
       bytes: file.bytes,
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('File saved to vault: ${file.name}')),
     );
@@ -2465,6 +3043,11 @@ class _RecordsPanelState extends State<RecordsPanel> {
           key: const ValueKey('records'),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
           children: [
+            if (snapshot.connectionState == ConnectionState.waiting)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10),
+                child: LinearProgressIndicator(minHeight: 3),
+              ),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -2738,6 +3321,10 @@ class PatientsHubPanel extends StatelessWidget {
         .allBookingsForPractice(selectedPractice.id)
         .take(8)
         .toList();
+    final balances = repository.benefitBalancesForPractice(selectedPractice.id);
+    final authorizations = repository.pendingAuthorizationsForPractice(
+      selectedPractice.id,
+    );
 
     return ListView(
       key: const ValueKey('patientsHub'),
@@ -2806,6 +3393,90 @@ class PatientsHubPanel extends StatelessWidget {
                       .toList(),
                 ),
         ),
+        const SizedBox(height: 12),
+        _sectionCard(
+          title: 'Medical Aid Benefit Balances',
+          subtitle:
+              'Remaining optical benefits to prevent denied or short-paid claims.',
+          child: balances.isEmpty
+              ? const Text('No balance records yet.')
+              : Column(
+                  children: balances
+                      .map(
+                        (balance) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.account_balance_wallet_outlined,
+                            color: AppPalette.primary,
+                          ),
+                          title: Text(
+                            '${balance.patientName} • ${balance.medicalAid}',
+                          ),
+                          subtitle: Text(
+                            'Updated ${DateFormat('dd MMM HH:mm').format(balance.lastUpdatedAt)}',
+                          ),
+                          trailing: Text(
+                            'R${balance.remainingAmount.toStringAsFixed(0)}',
+                            style: TextStyle(
+                              color: balance.remainingAmount <= 0
+                                  ? const Color(0xFFB3261E)
+                                  : const Color(0xFF1F9C64),
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
+        const SizedBox(height: 12),
+        _sectionCard(
+          title: 'Pending Authorizations',
+          subtitle:
+              'Live pre-authorization queue for high-trust claim readiness.',
+          child: authorizations.isEmpty
+              ? const Text('No authorization requests.')
+              : Column(
+                  children: authorizations
+                      .map(
+                        (auth) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.pending_actions_outlined,
+                            color: AppPalette.primary,
+                          ),
+                          title: Text(
+                            '${auth.patientName} • ${auth.medicalAid}',
+                          ),
+                          subtitle: Text(
+                            '${auth.service} • Requested ${DateFormat('dd MMM HH:mm').format(auth.requestedAt)}',
+                          ),
+                          trailing: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: auth.status == 'Approved'
+                                  ? const Color(0x261F9C64)
+                                  : const Color(0x26FF8A65),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              auth.status,
+                              style: TextStyle(
+                                color: auth.status == 'Approved'
+                                    ? const Color(0xFF1F9C64)
+                                    : AppPalette.secondary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
+        ),
       ],
     );
   }
@@ -2853,7 +3524,9 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
       claim: claim,
       booking: booking,
     );
-    if (!mounted) return;
+    if (!mounted) {
+      return;
+    }
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -2919,6 +3592,12 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
     final claimList = widget.repository.claimsForPractice(
       widget.selectedPractice.id,
     );
+    final rejectedClaims = widget.repository.rejectedClaimsForPractice(
+      widget.selectedPractice.id,
+    );
+    final overdueClaims = widget.repository.overdueClaimsForPractice(
+      widget.selectedPractice.id,
+    );
     final submitted = claimList
         .where((claim) => claim.status == ClaimStatus.submitted)
         .length;
@@ -2931,10 +3610,15 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
 
     return StreamBuilder<void>(
       stream: widget.repository.changes,
-      builder: (context, _) => ListView(
+      builder: (context, snapshot) => ListView(
         key: const ValueKey('billingHub'),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
         children: [
+          if (snapshot.connectionState == ConnectionState.waiting)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 10),
+              child: LinearProgressIndicator(minHeight: 3),
+            ),
           _sectionCard(
             title: 'Revenue & Billing Control',
             subtitle:
@@ -3069,6 +3753,73 @@ class _BillingHubPanelState extends State<BillingHubPanel> {
           ),
           const SizedBox(height: 12),
           _sectionCard(
+            title: 'Rejected Claims Triage',
+            subtitle: 'Reason-level queue to resolve denials faster.',
+            child: rejectedClaims.isEmpty
+                ? const Text('No rejected claims in queue.')
+                : Column(
+                    children: rejectedClaims
+                        .take(5)
+                        .map(
+                          (claim) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(
+                              Icons.error_outline,
+                              color: Color(0xFFCC3F3F),
+                            ),
+                            title: Text(
+                              'Claim ${claim.id.substring(claim.id.length - 6)} • R${claim.claimAmount.toStringAsFixed(0)}',
+                            ),
+                            subtitle: Text(
+                              claim.statusNote ?? claim.validationSummary,
+                            ),
+                            trailing: Text(
+                              DateFormat('dd MMM').format(claim.createdAt),
+                              style: const TextStyle(
+                                color: AppPalette.textMuted,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          _sectionCard(
+            title: 'Overdue Payment Watchlist',
+            subtitle: 'Claims older than 14 days and not marked paid.',
+            child: overdueClaims.isEmpty
+                ? const Text('No overdue claims currently.')
+                : Column(
+                    children: overdueClaims
+                        .take(5)
+                        .map(
+                          (claim) => ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(
+                              Icons.schedule_outlined,
+                              color: AppPalette.secondary,
+                            ),
+                            title: Text(
+                              'Claim ${claim.id.substring(claim.id.length - 6)} • ${DateTime.now().difference(claim.createdAt).inDays} days',
+                            ),
+                            subtitle: Text(
+                              'Status: ${claim.status.name} • ${claim.statusNote ?? 'Awaiting settlement'}',
+                            ),
+                            trailing: Text(
+                              'R${claim.claimAmount.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        )
+                        .toList(),
+                  ),
+          ),
+          const SizedBox(height: 12),
+          _sectionCard(
             title: 'Collections Playbook',
             subtitle:
                 '3-day pre-visit benefit check, same-day collection, 30/60/90 day AR follow-up.',
@@ -3148,6 +3899,9 @@ class ReportsHubPanel extends StatelessWidget {
       DateTime.now(),
     );
     final claims = repository.claimsForPractice(selectedPractice.id);
+    final activities = repository.staffActivitiesForPractice(
+      selectedPractice.id,
+    );
     final draft = claims.where((c) => c.status == ClaimStatus.draft).length;
     final submitted = claims
         .where((c) => c.status == ClaimStatus.submitted)
@@ -3197,6 +3951,38 @@ class ReportsHubPanel extends StatelessWidget {
               'Paid': paid.toDouble(),
             },
           ),
+        ),
+        const SizedBox(height: 12),
+        _sectionCard(
+          title: 'Audit Trail & Staff Activity',
+          subtitle:
+              'Timestamped operational events to build trust and accountability.',
+          child: activities.isEmpty
+              ? const Text('No staff activity logged yet.')
+              : Column(
+                  children: activities
+                      .map(
+                        (activity) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(
+                            Icons.history_toggle_off_outlined,
+                            color: AppPalette.primary,
+                          ),
+                          title: Text('${activity.actor} • ${activity.action}'),
+                          subtitle: Text(activity.details),
+                          trailing: Text(
+                            DateFormat(
+                              'dd MMM HH:mm',
+                            ).format(activity.createdAt),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppPalette.textMuted,
+                            ),
+                          ),
+                        ),
+                      )
+                      .toList(),
+                ),
         ),
       ],
     );
