@@ -2520,6 +2520,8 @@ class _StaffPanelState extends State<StaffPanel> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) {
+          final screenSize = MediaQuery.sizeOf(context);
+          final isCompactDialog = screenSize.width < 420;
           final icdSuggestions = ClaimAssistEngine.suggestIcd10(
             serviceType: booking.serviceType,
             clinicalFindings: findings.text,
@@ -2530,102 +2532,163 @@ class _StaffPanelState extends State<StaffPanel> {
           selectedIcd10 ??= icdSuggestions.first;
           selectedTariff ??= tariffSuggestions.first;
           return AlertDialog(
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: isCompactDialog ? 12 : 24,
+              vertical: 20,
+            ),
             title: const Text('Complete Visit & Claim Assist'),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: findings,
-                    maxLines: 3,
-                    onChanged: (_) => setDialogState(() {}),
-                    decoration: const InputDecoration(
-                      labelText: 'Clinical Findings',
-                      border: OutlineInputBorder(),
+            content: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isCompactDialog ? screenSize.width - 24 : 460,
+                maxHeight: screenSize.height * 0.6,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    TextField(
+                      controller: findings,
+                      maxLines: 3,
+                      onChanged: (_) => setDialogState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Clinical Findings',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        alignLabelWithHint: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: summary,
-                    maxLines: 3,
-                    decoration: const InputDecoration(
-                      labelText: 'Visit Summary',
-                      border: OutlineInputBorder(),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: summary,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Visit Summary',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        alignLabelWithHint: true,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  TextField(
-                    controller: amount,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: amount,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: 'Claim Amount (R)',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 12,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                    decoration: const InputDecoration(
-                      labelText: 'Claim Amount (R)',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedIcd10,
-                    items: icdSuggestions
-                        .map(
-                          (code) => DropdownMenuItem<String>(
-                            value: code,
-                            child: Text(
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedIcd10,
+                      isExpanded: true,
+                      items: icdSuggestions
+                          .map(
+                            (code) => DropdownMenuItem<String>(
+                              value: code,
+                              child: Text(
+                                '$code — ${ClaimAssistEngine.icd10Catalog[code]}',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      selectedItemBuilder: (context) => icdSuggestions
+                          .map(
+                            (code) => Text(
                               '$code — ${ClaimAssistEngine.icd10Catalog[code]}',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
                             ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setDialogState(() => selectedIcd10 = value),
-                    decoration: const InputDecoration(
-                      labelText: 'ICD-10 Suggestion',
-                      border: OutlineInputBorder(),
+                          )
+                          .toList(),
+                      onChanged: (value) =>
+                          setDialogState(() => selectedIcd10 = value),
+                      decoration: const InputDecoration(
+                        labelText: 'ICD-10 Suggestion',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  DropdownButtonFormField<String>(
-                    value: selectedTariff,
-                    items: tariffSuggestions
-                        .map(
-                          (code) => DropdownMenuItem<String>(
-                            value: code,
-                            child: Text(
+                    const SizedBox(height: 12),
+                    DropdownButtonFormField<String>(
+                      value: selectedTariff,
+                      isExpanded: true,
+                      items: tariffSuggestions
+                          .map(
+                            (code) => DropdownMenuItem<String>(
+                              value: code,
+                              child: Text(
+                                '$code — ${ClaimAssistEngine.tariffCatalog[code]}',
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      selectedItemBuilder: (context) => tariffSuggestions
+                          .map(
+                            (code) => Text(
                               '$code — ${ClaimAssistEngine.tariffCatalog[code]}',
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
                             ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) =>
-                        setDialogState(() => selectedTariff = value),
-                    decoration: const InputDecoration(
-                      labelText: 'Tariff Helper',
-                      border: OutlineInputBorder(),
+                          )
+                          .toList(),
+                      onChanged: (value) =>
+                          setDialogState(() => selectedTariff = value),
+                      decoration: const InputDecoration(
+                        labelText: 'Tariff Helper',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        border: OutlineInputBorder(),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Validation checks cover documentation quality, coding completeness, and amount.',
-                    style: TextStyle(fontSize: 12, color: Color(0xFF6A768A)),
-                  ),
-                  if (validationIssues.isNotEmpty) ...[
                     const SizedBox(height: 8),
-                    ...validationIssues.map(
-                      (issue) => Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
-                        child: Text(
-                          '• $issue',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: Color(0xFFAD2C2C),
+                    const Text(
+                      'Validation checks cover documentation quality, coding completeness, and amount.',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF6A768A)),
+                    ),
+                    if (validationIssues.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      ...validationIssues.map(
+                        (issue) => Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '• $issue',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFFAD2C2C),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             actions: [
