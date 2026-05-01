@@ -1639,12 +1639,19 @@ class _Header extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final syncedText = isMobile
+        ? 'Synced ${DateFormat('HH:mm').format(lastSyncedAt)} • '
+            '${metrics['deniedClaims'] ?? 0} denied'
+        : 'Last synced ${DateFormat('HH:mm:ss').format(lastSyncedAt)} • '
+            '${metrics['deniedClaims'] ?? 0} denied claims • '
+            '${metrics['pendingAuth'] ?? 0} pending auth';
+
     return Padding(
       padding: EdgeInsets.fromLTRB(12, isMobile ? 10 : 14, 12, 10),
       child: Container(
         padding: EdgeInsets.all(isMobile ? 14 : 18),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(26),
+          borderRadius: BorderRadius.circular(isMobile ? 20 : 26),
           gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
@@ -1667,37 +1674,37 @@ class _Header extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
                     'Shokane Eyecare Pilot',
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 22,
+                      fontSize: isMobile ? 18 : 22,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.2,
                     ),
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isMobile ? 8 : 10,
+                    vertical: isMobile ? 5 : 6,
                   ),
                   decoration: BoxDecoration(
                     color: const Color(0x26FFFFFF),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(color: const Color(0x4CFFFFFF)),
                   ),
-                  child: const Text(
+                  child: Text(
                     'LIVE',
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.w700,
-                      fontSize: 12,
+                      fontSize: isMobile ? 11 : 12,
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
+                SizedBox(width: isMobile ? 2 : 8),
                 if (!isMobile)
                   IconButton(
                     tooltip: compactRail
@@ -1761,57 +1768,62 @@ class _Header extends StatelessWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: isMobile ? 4 : 6),
             Text(
               'Private practice command center for ${selectedPractice.name}.',
-              style: const TextStyle(
+              style: TextStyle(
                 color: Color(0xFFE8F4FF),
-                fontSize: 13,
+                fontSize: isMobile ? 12 : 13,
                 fontWeight: FontWeight.w500,
               ),
             ),
-            const SizedBox(height: 6),
+            SizedBox(height: isMobile ? 4 : 6),
             Text(
-              'Last synced ${DateFormat('HH:mm:ss').format(lastSyncedAt)} • '
-              '${metrics['deniedClaims'] ?? 0} denied claims • '
-              '${metrics['pendingAuth'] ?? 0} pending auth',
-              style: const TextStyle(
+              syncedText,
+              style: TextStyle(
                 color: Color(0xFFE8F4FF),
-                fontSize: 12,
+                fontSize: isMobile ? 11 : 12,
                 fontWeight: FontWeight.w600,
               ),
             ),
-            const SizedBox(height: 14),
+            SizedBox(height: isMobile ? 10 : 14),
             Wrap(
-              spacing: 8,
-              runSpacing: 8,
+              spacing: isMobile ? 6 : 8,
+              runSpacing: isMobile ? 6 : 8,
               children: [
-                _kpi('Today', '${metrics['todayBookings']}'),
-                _kpi('Checked-In', '${metrics['checkedIn']}'),
-                _kpi('Claims', '${metrics['claimCount']}'),
-                _kpi('Files', '${metrics['fileCount']}'),
-                _kpi('No-Shows', '${metrics['noShows']}'),
+                _kpi('Today', '${metrics['todayBookings']}', compact: isMobile),
+                _kpi('Checked-In', '${metrics['checkedIn']}', compact: isMobile),
+                _kpi('Claims', '${metrics['claimCount']}', compact: isMobile),
+                if (!isMobile)
+                  _kpi('Files', '${metrics['fileCount']}', compact: isMobile),
+                if (!isMobile)
+                  _kpi('No-Shows', '${metrics['noShows']}', compact: isMobile),
               ],
             ),
-            const SizedBox(height: 12),
-            const Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _QuickPill(label: 'Fast Claims'),
-                _QuickPill(label: 'AR Focus'),
-                _QuickPill(label: 'Low No-Shows'),
-              ],
-            ),
+            if (!isMobile) ...[
+              const SizedBox(height: 12),
+              const Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _QuickPill(label: 'Fast Claims'),
+                  _QuickPill(label: 'AR Focus'),
+                  _QuickPill(label: 'Low No-Shows'),
+                ],
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  Widget _kpi(String label, String value) {
+  Widget _kpi(String label, String value, {required bool compact}) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 10 : 12,
+        vertical: compact ? 7 : 8,
+      ),
       decoration: BoxDecoration(
         color: const Color(0x2CFFFFFF),
         borderRadius: BorderRadius.circular(12),
@@ -1819,10 +1831,10 @@ class _Header extends StatelessWidget {
       ),
       child: Text(
         '$label: $value',
-        style: const TextStyle(
+        style: TextStyle(
           color: Colors.white,
           fontWeight: FontWeight.w700,
-          fontSize: 12,
+          fontSize: compact ? 11 : 12,
         ),
       ),
     );
@@ -2674,33 +2686,92 @@ class _StaffPanelState extends State<StaffPanel> {
               borderRadius: BorderRadius.circular(14),
               border: Border.all(color: AppPalette.atlanticSand),
             ),
-            child: Row(
-              children: [
-                const Icon(
-                  Icons.event_note_outlined,
-                  color: AppPalette.primary,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  DateFormat('EEEE, dd MMM yyyy').format(date),
-                  style: const TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const Spacer(),
-                Text(
-                  widget.selectedPractice.name,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppPalette.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                TextButton.icon(
-                  onPressed: _pickDate,
-                  icon: const Icon(Icons.calendar_month_outlined),
-                  label: const Text('Change Day'),
-                ),
-              ],
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final isCompact = constraints.maxWidth < 760;
+                final dateLabel = DateFormat('EEEE, dd MMM yyyy').format(date);
+
+                if (isCompact) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.event_note_outlined,
+                            color: AppPalette.primary,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              dateLabel,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.selectedPractice.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppPalette.primary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          TextButton.icon(
+                            onPressed: _pickDate,
+                            icon: const Icon(Icons.calendar_month_outlined),
+                            label: const Text('Change Day'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  );
+                }
+
+                return Row(
+                  children: [
+                    const Icon(
+                      Icons.event_note_outlined,
+                      color: AppPalette.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        dateLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Text(
+                      widget.selectedPractice.name,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppPalette.primary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton.icon(
+                      onPressed: _pickDate,
+                      icon: const Icon(Icons.calendar_month_outlined),
+                      label: const Text('Change Day'),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
