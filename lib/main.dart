@@ -2670,6 +2670,7 @@ class _StaffPanelState extends State<StaffPanel> {
 
   @override
   Widget build(BuildContext context) {
+    final isCompactScreen = MediaQuery.sizeOf(context).width < 760;
     final metrics = widget.repository.dashboardMetrics(
       widget.selectedPractice.id,
       date,
@@ -2775,36 +2776,37 @@ class _StaffPanelState extends State<StaffPanel> {
             ),
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              _metricChip('Today', '${metrics['todayBookings']}', Icons.today),
-              _metricChip(
-                'Checked-In',
-                '${metrics['checkedIn']}',
-                Icons.how_to_reg,
-              ),
-              _metricChip(
-                'Claims',
-                '${metrics['claimCount']}',
-                Icons.receipt_long,
-              ),
-              _metricChip(
-                'Files',
-                '${metrics['fileCount']}',
-                Icons.folder_copy,
-              ),
-              _metricChip(
-                'No-Shows',
-                '${metrics['noShows']}',
-                Icons.person_off,
-              ),
-            ],
+        if (!isCompactScreen)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _metricChip('Today', '${metrics['todayBookings']}', Icons.today),
+                _metricChip(
+                  'Checked-In',
+                  '${metrics['checkedIn']}',
+                  Icons.how_to_reg,
+                ),
+                _metricChip(
+                  'Claims',
+                  '${metrics['claimCount']}',
+                  Icons.receipt_long,
+                ),
+                _metricChip(
+                  'Files',
+                  '${metrics['fileCount']}',
+                  Icons.folder_copy,
+                ),
+                _metricChip(
+                  'No-Shows',
+                  '${metrics['noShows']}',
+                  Icons.person_off,
+                ),
+              ],
+            ),
           ),
-        ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
           child: Container(
